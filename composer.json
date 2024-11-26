@@ -1,5 +1,5 @@
 {
-    "name": "arekaev/magnit-sdk",
+    "name": "arekaev/magnit-b2b-api",
     "description": "SDK for Magnit B2B API",
     "require": {
         "../../guzzlehttp/guzzle": "^7.8"
