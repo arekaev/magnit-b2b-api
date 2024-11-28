@@ -4,22 +4,35 @@ namespace Magnit;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
+//use GuzzleHttp\HandlerStack;
+//use GuzzleHttp\Middleware;
+use Magnit\Exceptions\ApiException;
 
 class MagnitClient
 {
-    private $accessToken;
-    private $tokenExpiresAt;
+    private $accessToken = '';
+    private $tokenExpiresIn = 0;
     private $httpClient;
-    private $clientId;
-    private $clientSecret;
-    private $tokenStoragePath = __DIR__ . '/data/token.json';
+    private $clientId = '';
+    private $clientSecret = '';
+    private $tokenStoragePath  = __DIR__.'/../data/token.json';
 
-    public function __construct(string $baseUrl, string $clientId, string $clientSecret)
+    public $container = [];
+
+    public function __construct(string $clientId, string $clientSecret, string $baseUrl = 'https://b2b-api.magnit.ru/api/')
     {
         $this->clientId = $clientId;
         $this->clientSecret = $clientSecret;
-        $this->loadTokenFromStorage();
-        $this->httpClient = new Client(['base_uri' => $baseUrl]);
+//
+//        $history = Middleware::history($this->container);
+//        $handlerStack = HandlerStack::create();
+//        $handlerStack->push($history);
+
+
+        $this->httpClient = new Client([
+            'base_uri' => $baseUrl,
+//            'handler' => $handlerStack
+        ]);
     }
 
     /**
@@ -27,7 +40,9 @@ class MagnitClient
      */
     private function getAccessToken(): string
     {
-        if (!$this->accessToken || $this->tokenExpiresAt <= time()) {
+        $this->loadTokenFromStorage();
+
+        if (!$this->accessToken || $this->tokenExpiresIn <= time()) {
             $this->refreshAccessToken();
         }
 
@@ -38,59 +53,87 @@ class MagnitClient
     {
         if (file_exists($this->tokenStoragePath)) {
             $data = json_decode(file_get_contents($this->tokenStoragePath), true);
-            $this->accessToken = $data['access_token'] ?? null;
-            $this->tokenExpiresAt = $data['expires_at'] ?? 0;
+
+            $this->accessToken = $data['access_token'] ?? '';
+            $this->tokenExpiresIn = $data['expires_in'] ?? 0;
         }
     }
 
-    private function refreshAccessToken(): void
+    public function refreshAccessToken(): void
     {
-        $response = $this->httpClient->request('POST', '/v2/oauth/token', [
-            'json' => [
-                'client_id' => $this->clientId,
-                'client_secret' => $this->clientSecret,
-            ],
-        ]);
+        try {
+            $response = $this->httpClient->request('POST', 'api/v2/oauth/token', [
+                'headers' => [
+                    'Content-Type' => 'application/x-www-form-urlencoded',
+                    'Accept' => 'application/json',
+                ],
+                'form_params' => [
+                    'client_id' => $this->clientId,
+                    'client_secret' => $this->clientSecret,
+                    'scope' => 'openid magnit-post:orders magnit-post:pickup-points',
+                    'grant_type' => 'client_credentials',
+                ],
+            ]);
 
-        $data = json_decode($response->getBody()->getContents(), true);
-        $this->accessToken = $data['access_token'];
-        $this->tokenExpiresAt = time() + ($data['expires_in'] ?? 59 * 60);
+            $data = json_decode($response->getBody()->getContents(), true);
 
-        // Сохранение токена в файл
-        $this->saveTokenToStorage();
+            $this->accessToken = $data['access_token'];
+            $this->tokenExpiresIn = time() + ($data['expires_in'] ?? 59 * 60);
+
+            $this->saveTokenToStorage();
+        } catch (RequestException $e) {
+            $this->callException($e);
+        }
     }
 
     private function saveTokenToStorage(): void
     {
         file_put_contents($this->tokenStoragePath, json_encode([
             'access_token' => $this->accessToken,
-            'expires_at' => $this->tokenExpiresAt,
+            'expires_in' => $this->tokenExpiresIn,
         ]));
     }
 
-
     /**
-     * Отправка запросов с Bearer токеном.
+     * @param string $method
+     * @param string $endpoint
+     * @param array $form_params
+     * @return array
      */
-    public function request(string $method, string $endpoint, array $data = []): array
+    public function request(string $method, string $endpoint, array $form_params = []): array
     {
         try {
             $response = $this->httpClient->request($method, $endpoint, [
                 'headers' => [
                     'Authorization' => 'Bearer ' . $this->getAccessToken(),
+                    'Content-Type' => 'application/x-www-form-urlencoded',
+                    'Accept' => 'application/json',
                 ],
-                'json' => json_encode($data),
+                'form_params' => $form_params
             ]);
 
             return json_decode($response->getBody()->getContents(), true);
         } catch (RequestException $e) {
-            $response = $e->getResponse();
-            $statusCode = $response ? $response->getStatusCode() : 0;
-            $errorMessage = $response ? $response->getBody()->getContents() : $e->getMessage();
-
-            throw new ApiException($errorMessage, $statusCode);
+            $this->callException($e);
         }
+
+//        foreach ($this->container as $transaction) {
+//            dump($transaction);
+//        }
     }
 
+    /**
+     * @param RequestException $e
+     * @return void
+     * @throws ApiException
+     */
+    private function callException(RequestException $e): void
+    {
+        $response = $e->getResponse();
+        $statusCode = $response ? $response->getStatusCode() : 0;
+        $errorMessage = $response ? $response->getBody()->getContents() : $e->getMessage();
+
+        throw new ApiException($errorMessage, $statusCode);
+    }
 
 }

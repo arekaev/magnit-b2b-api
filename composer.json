@@ -2,7 +2,7 @@
     "name": "arekaev/magnit-b2b-api",
     "description": "SDK for Magnit B2B API",
     "require": {
-        "guzzlehttp/guzzle": "^7.8"
+        "guzzlehttp/guzzle": "^7.0"
     },
     "autoload": {
         "psr-4": {
