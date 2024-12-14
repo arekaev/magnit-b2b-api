@@ -7,7 +7,7 @@ use Magnit\MagnitClient;
 class BaseClass
 {
 
-    protected $client;
+    protected MagnitClient $client;
 
     public function __construct(MagnitClient $client)
     {
